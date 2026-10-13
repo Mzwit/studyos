@@ -1664,15 +1664,33 @@ function parseLooseJSON(t) {
   if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch { } }
   throw { code: 'invalid_json', text: t };
 }
-ask = async function (prompt, o = {}) {
+async function pickModel(key, force) {
+  const chosen = (lsGet('gemmodel') || '').trim(); if (chosen) return chosen.replace(/^models\//, '');
+  const auto = lsGet('gemauto'); if (auto && !force) return auto;
+  let list = [];
+  try {
+    let page = '';
+    for (let i = 0; i < 5; i++) {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200${page ? '&pageToken=' + page : ''}`, { headers: { 'x-goog-api-key': key } });
+      if (r.status === 400 || r.status === 401 || r.status === 403) throw { code: 'bad_key' };
+      if (!r.ok) break; const j = await r.json(); list.push(...(j.models || [])); if (!j.nextPageToken) break; page = j.nextPageToken;
+    }
+  } catch (e) { if (e?.code) throw e; }
+  const ok = list.filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace(/^models\//, ''))
+    .filter(n => /^gemini/.test(n) && !/(image|tts|audio|live|embed|vision|robotics|computer|thinking-exp|learnlm|nano)/.test(n));
+  const ver = n => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
+  const score = n => (/flash/.test(n) ? 1000 : /pro/.test(n) ? 500 : 0) - (/lite/.test(n) ? 300 : 0) + ver(n) * 10 - (/preview|exp/.test(n) ? 5 : 0) + (/latest/.test(n) ? 2 : 0);
+  const best = ok.sort((a, b) => score(b) - score(a))[0] || GEM_DEFAULT;
+  lsSet('gemauto', best); return best;
+}
+ask = async function (prompt, o = {}, _retry) {
   const key = lsGet('gemkey'); if (!key) throw { code: 'not_granted' };
-  const model = (lsGet('gemmodel') || GEM_DEFAULT).trim();
+  const model = await pickModel(key, _retry);
   const turns = typeof prompt === 'string' ? [{ role: 'user', content: prompt }] : prompt;
   const contents = [];
   for (const t of turns) { const role = t.role === 'assistant' ? 'model' : 'user'; const last = contents.at(-1); if (last && last.role === role) last.parts[0].text += '\n\n' + t.content; else contents.push({ role, parts: [{ text: t.content }] }); }
   const generationConfig = { temperature: o.json ? 0.4 : 0.7, maxOutputTokens: 16384 };
   if (o.json) generationConfig.responseMimeType = 'application/json';
-  if (/2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: o.json ? 1024 : 512 };
   const body = JSON.stringify({ contents, generationConfig });
   const ck = model + body;
   if (o.cache !== false && AICACHE.has(ck) && Date.now() - AICACHE.get(ck).ts < 5 * 60e3) { const t = AICACHE.get(ck).text; o.onText?.({ text: t, delta: t }); return o.json ? parseLooseJSON(t) : t; }
@@ -1684,7 +1702,7 @@ ask = async function (prompt, o = {}) {
     let msg = ''; try { msg = (await res.json())?.error?.message || ''; } catch { }
     if (res.status === 429) throw { code: 'rate_limited', message: msg };
     if (res.status === 400 && /api key/i.test(msg) || res.status === 401 || res.status === 403) throw { code: 'bad_key', message: msg };
-    if (res.status === 404) throw { code: 'bad_model', message: msg };
+    if (res.status === 404) { if (!_retry && !(lsGet('gemmodel') || '').trim()) return ask(prompt, o, true); throw { code: 'bad_model', message: msg }; }
     if (res.status === 400 && /token|too long|exceeds/i.test(msg)) throw { code: 'prompt_too_large', message: msg };
     throw { code: 'upstream_error', message: msg };
   }
@@ -1710,7 +1728,7 @@ ask = async function (prompt, o = {}) {
 Object.assign(AI_ERR, {
   not_granted: 'Add your free Gemini key in Settings to use AI features.',
   bad_key: 'Google rejected your Gemini key. Check it in Settings (copy it again from Google AI Studio).',
-  bad_model: 'That Gemini model name was not found. Clear the model field in Settings to use the default.',
+  bad_model: 'Google could not find that model. Clear the Model box in Settings, press Save, then Test connection.',
   rate_limited: 'Gemini\'s free limit was reached for now. Wait a minute (or until tomorrow for the daily limit) and try again.',
   upstream_error: 'Could not reach Gemini. Check your internet connection and try again.',
 });
@@ -1727,7 +1745,7 @@ VIEWS.settings = function () {
    <div class="panel"><div class="panel-h"><h2>AI connection (free)</h2><span class="chip ${k ? 'good' : 'warn'}">${k ? 'Key saved' : 'No key yet'}</span></div>
      <ol style="margin:0 0 12px;padding-left:1.2em;font-size:14px;color:var(--ink-2)"><li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with a Google account.</li><li>Tap <b>Create API key</b> and copy it.</li><li>Paste it below and press Save. It stays in this browser only.</li></ol>
      <div style="display:flex;flex-direction:column;gap:10px"><label class="f">Gemini API key<input type="password" id="gemkey" value="${esc(k)}" placeholder="AIza…" autocomplete="off"></label>
-     <label class="f">Model (leave blank for ${GEM_DEFAULT})<input type="text" id="gemmodel" value="${esc(mdl)}" placeholder="${GEM_DEFAULT}"></label>
+     <label class="f">Model (leave blank to pick automatically${lsGet('gemauto') ? ' — currently ' + esc(lsGet('gemauto')) : ''})<input type="text" id="gemmodel" value="${esc(mdl)}" placeholder="automatic"></label>
      <div class="row"><button class="btn pri" data-wact="gemsave">Save</button><button class="btn" data-wact="gemtest">Test connection</button>${k ? '<button class="btn ghost" data-wact="gemclear">Remove key</button>' : ''}</div><div id="gemmsg" class="muted" style="font-size:13px"></div></div>
      <p class="muted" style="font-size:12px;margin:10px 0 0">The free tier has daily limits. Questions you ask are sent to Google to be answered.</p></div>
    <div class="panel"><div class="panel-h"><h2>Move progress between devices</h2></div>
@@ -1747,9 +1765,9 @@ AFTER.settings = function () {
 };
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-wact]'); if (!b) return; const a = b.dataset.wact;
-  if (a === 'gemsave') { const k = $('#gemkey').value.trim(), m = $('#gemmodel').value.trim(); if (k) lsSet('gemkey', k); else localStorage.removeItem('studyos.gemkey'); if (m) lsSet('gemmodel', m); else try { localStorage.removeItem('studyos.gemmodel'); } catch { } AI.state = k ? 'on' : 'off'; AI.fn = k ? true : null; toast(k ? 'Key saved' : 'Key removed'); render(); }
+  if (a === 'gemsave') { try { localStorage.removeItem('studyos.gemauto'); } catch { } const k = $('#gemkey').value.trim(), m = $('#gemmodel').value.trim(); if (k) lsSet('gemkey', k); else localStorage.removeItem('studyos.gemkey'); if (m) lsSet('gemmodel', m); else try { localStorage.removeItem('studyos.gemmodel'); } catch { } AI.state = k ? 'on' : 'off'; AI.fn = k ? true : null; toast(k ? 'Key saved' : 'Key removed'); render(); }
   if (a === 'gemclear') { try { localStorage.removeItem('studyos.gemkey'); } catch { } AI.state = 'off'; AI.fn = null; render(); }
-  if (a === 'gemtest') { const k = $('#gemkey').value.trim(); if (!k) return toast('Paste your key first'); lsSet('gemkey', k); const m = $('#gemmodel').value.trim(); if (m) lsSet('gemmodel', m); AI.state = 'on'; AI.fn = true; const out = $('#gemmsg'); out.textContent = 'Testing…';
-    try { const t = await ask('Reply with exactly: StudyOS connected', { cache: false, tier: 'quick' }); out.textContent = '✓ Connected — ' + t.trim().slice(0, 60); } catch (err) { out.textContent = aiMsg(err); } }
+  if (a === 'gemtest') { try { localStorage.removeItem('studyos.gemauto'); } catch { } const k = $('#gemkey').value.trim(); if (!k) return toast('Paste your key first'); lsSet('gemkey', k); const m = $('#gemmodel').value.trim(); if (m) lsSet('gemmodel', m); AI.state = 'on'; AI.fn = true; const out = $('#gemmsg'); out.textContent = 'Testing…';
+    try { const t = await ask('Reply with exactly: StudyOS connected', { cache: false, tier: 'quick' }); out.textContent = '✓ Connected using ' + (lsGet('gemmodel') || lsGet('gemauto')) + ' — ' + t.trim().slice(0, 60); } catch (err) { out.textContent = aiMsg(err); } }
   if (a === 'lock') { try { localStorage.removeItem('studyos.k'); } catch { } location.reload(); }
 });
