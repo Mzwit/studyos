@@ -1673,14 +1673,15 @@ async function pickModel(key, force) {
     for (let i = 0; i < 5; i++) {
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200${page ? '&pageToken=' + page : ''}`, { headers: { 'x-goog-api-key': key } });
       if (r.status === 400 || r.status === 401 || r.status === 403) throw { code: 'bad_key' };
-      if (!r.ok) break; const j = await r.json(); list.push(...(j.models || [])); if (!j.nextPageToken) break; page = j.nextPageToken;
+      if (!r.ok) { let m = ''; try { m = (await r.json())?.error?.message || ''; } catch { } WEB.lastErr = `listing models: HTTP ${r.status} ${m}`; break; } const j = await r.json(); list.push(...(j.models || [])); if (!j.nextPageToken) break; page = j.nextPageToken;
     }
-  } catch (e) { if (e?.code) throw e; }
+  } catch (e) { if (e?.code) throw e; WEB.lastErr = 'listing models: ' + (e?.message || e); }
   const ok = list.filter(m => (m.supportedGenerationMethods || []).includes('generateContent')).map(m => m.name.replace(/^models\//, ''))
     .filter(n => /^gemini/.test(n) && !/(image|tts|audio|live|embed|vision|robotics|computer|thinking-exp|learnlm|nano)/.test(n));
   const ver = n => parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0);
   const score = n => (/flash/.test(n) ? 1000 : /pro/.test(n) ? 500 : 0) - (/lite/.test(n) ? 300 : 0) + ver(n) * 10 - (/preview|exp/.test(n) ? 5 : 0) + (/latest/.test(n) ? 2 : 0);
-  const best = ok.sort((a, b) => score(b) - score(a))[0] || GEM_DEFAULT;
+  const best = ok.sort((a, b) => score(b) - score(a))[0];
+  if (!best) return GEM_DEFAULT;
   lsSet('gemauto', best); return best;
 }
 ask = async function (prompt, o = {}, _retry) {
@@ -1697,9 +1698,9 @@ ask = async function (prompt, o = {}, _retry) {
   let res;
   try {
     res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body, signal: o.signal });
-  } catch (e) { throw { code: e?.name === 'AbortError' ? 'cancelled' : 'upstream_error', message: String(e) }; }
+  } catch (e) { WEB.lastErr = `${model}: ${e?.message || e}`; throw { code: e?.name === 'AbortError' ? 'cancelled' : 'upstream_error', message: String(e) }; }
   if (!res.ok) {
-    let msg = ''; try { msg = (await res.json())?.error?.message || ''; } catch { }
+    let msg = ''; try { msg = (await res.json())?.error?.message || ''; } catch { } WEB.lastErr = `${model}: HTTP ${res.status} ${msg}`;
     if (res.status === 429) throw { code: 'rate_limited', message: msg };
     if (res.status === 400 && /api key/i.test(msg) || res.status === 401 || res.status === 403) throw { code: 'bad_key', message: msg };
     if (res.status === 404) { if (!_retry && !(lsGet('gemmodel') || '').trim()) return ask(prompt, o, true); throw { code: 'bad_model', message: msg }; }
@@ -1719,7 +1720,7 @@ ask = async function (prompt, o = {}, _retry) {
         if (j.promptFeedback?.blockReason) finish = 'SAFETY';
       }
     }
-  } catch (e) { throw { code: e?.name === 'AbortError' ? 'cancelled' : 'upstream_error', text }; }
+  } catch (e) { WEB.lastErr = `${model} stream: ${e?.message || e}`; throw { code: e?.name === 'AbortError' ? 'cancelled' : 'upstream_error', text }; }
   if (/SAFETY|PROHIBITED|BLOCKLIST|RECITATION/.test(finish) && !text) throw { code: 'refused' };
   if (!text.trim()) throw { code: 'empty_completion' };
   AICACHE.set(ck, { ts: Date.now(), text });
@@ -1767,7 +1768,7 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-wact]'); if (!b) return; const a = b.dataset.wact;
   if (a === 'gemsave') { try { localStorage.removeItem('studyos.gemauto'); } catch { } const k = $('#gemkey').value.trim(), m = $('#gemmodel').value.trim(); if (k) lsSet('gemkey', k); else localStorage.removeItem('studyos.gemkey'); if (m) lsSet('gemmodel', m); else try { localStorage.removeItem('studyos.gemmodel'); } catch { } AI.state = k ? 'on' : 'off'; AI.fn = k ? true : null; toast(k ? 'Key saved' : 'Key removed'); render(); }
   if (a === 'gemclear') { try { localStorage.removeItem('studyos.gemkey'); } catch { } AI.state = 'off'; AI.fn = null; render(); }
-  if (a === 'gemtest') { try { localStorage.removeItem('studyos.gemauto'); } catch { } const k = $('#gemkey').value.trim(); if (!k) return toast('Paste your key first'); lsSet('gemkey', k); const m = $('#gemmodel').value.trim(); if (m) lsSet('gemmodel', m); AI.state = 'on'; AI.fn = true; const out = $('#gemmsg'); out.textContent = 'Testing…';
-    try { const t = await ask('Reply with exactly: StudyOS connected', { cache: false, tier: 'quick' }); out.textContent = '✓ Connected using ' + (lsGet('gemmodel') || lsGet('gemauto')) + ' — ' + t.trim().slice(0, 60); } catch (err) { out.textContent = aiMsg(err); } }
+  if (a === 'gemtest') { try { localStorage.removeItem('studyos.gemauto'); } catch { } const k = $('#gemkey').value.trim(); if (!k) return toast('Paste your key first'); lsSet('gemkey', k); const m = $('#gemmodel').value.trim(); if (m) lsSet('gemmodel', m); AI.state = 'on'; AI.fn = true; const out = $('#gemmsg'); out.textContent = 'Testing…'; WEB.lastErr = '';
+    try { const t = await ask('Reply with exactly: StudyOS connected', { cache: false, tier: 'quick' }); out.textContent = '✓ Connected using ' + (lsGet('gemmodel') || lsGet('gemauto')) + ' — ' + t.trim().slice(0, 60); } catch (err) { out.textContent = aiMsg(err) + (WEB.lastErr ? '  Details: ' + WEB.lastErr : ''); } }
   if (a === 'lock') { try { localStorage.removeItem('studyos.k'); } catch { } location.reload(); }
 });
