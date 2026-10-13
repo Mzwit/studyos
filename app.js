@@ -1615,13 +1615,14 @@ function gate() {
     $('#main').innerHTML = `<div class="wrap" style="max-width:420px;min-height:80vh;justify-content:center">
       <form class="panel" id="gateform" style="display:flex;flex-direction:column;gap:14px;padding:28px">
         <div><div style="font-family:var(--f-read);font-size:32px;font-weight:600">StudyOS</div><p class="sub" style="margin-top:2px">Learn from zero. Master every topic. Walk into exams prepared.</p></div>
-        <label class="f">Passcode<input type="password" id="gpass" autocomplete="current-password" required autofocus></label>
+        <label class="f">Passcode<span style="display:flex;gap:6px"><input type="password" id="gpass" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus style="flex:1"><button type="button" class="btn sm" id="gshow">Show</button></span></label>
         <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="gremember" checked> Remember on this device</label>
         <button class="btn pri" type="submit" id="gbtn" style="justify-content:center">Unlock</button>
         <p class="muted" id="gmsg" style="margin:0;font-size:13px">Your lecture notes are encrypted. Enter the passcode to open them.</p></form></div>`;
+    $('#gshow').addEventListener('click', () => { const i = $('#gpass'); const sh = i.type === 'password'; i.type = sh ? 'text' : 'password'; $('#gshow').textContent = sh ? 'Hide' : 'Show'; });
     $('#gateform').addEventListener('submit', async e => {
       e.preventDefault(); const btn = $('#gbtn'); btn.disabled = true; $('#gmsg').textContent = 'Unlocking…';
-      const k = await deriveKey($('#gpass').value);
+      const k = await deriveKey($('#gpass').value.trim().toLowerCase().replace(/[\s_\u2010-\u2015\u2212]+/g, '-'));
       if (await keyWorks(k)) {
         if ($('#gremember').checked) lsSet('k', unb64(await crypto.subtle.exportKey('raw', k)));
         $('#rail').hidden = false; $('#bottomnav').hidden = false; $('.app').style.gridTemplateColumns = ''; resolve();
