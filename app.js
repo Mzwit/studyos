@@ -147,7 +147,7 @@ const allMods = () => [...C.mods, ...ST.d.custom.mods.filter(m => m.loaded)];
 const modBy = code => allMods().find(m => m.code === code);
 const unitLabel = u => u.label || (u.num === 0 ? 'Overview' : 'Unit ' + u.num);
 const tagOf = u => (u.kind === 'slides' ? 'S' : u.kind === 'answers' ? 'A' : 'U') + u.num;
-const isStudy = u => u.num > 0 && !u.kind;
+const isStudy = u => (u.num > 0 || u.study) && !u.kind;
 const studyUnitId = id => { const m = /^(.*)-s(\d+)$/.exec(id || ''); return m && C.byId[`${m[1]}-u${m[2]}`] ? `${m[1]}-u${m[2]}` : id; };
 const citeOf = (m, u, p) => `[${m.code} ${tagOf(u)} p.${p.n}]`;
 
@@ -1455,7 +1455,7 @@ VIEWS.settings = () => {
       <p style="margin:0 0 12px"><b>AI:</b> ${aiReady() ? 'Connected. AI features use your own Claude usage.' : AI.state === 'pending' ? 'Connecting…' : 'Not available in this view.'}</p>
       <div class="row"><button class="btn" data-act="export">Export all my data</button><button class="btn ghost" data-act="reset">Delete all my study data</button></div>
       <div id="resetc"></div></div></div>
-  <div class="panel"><div class="panel-h"><h2>About StudyOS</h2></div><p style="margin:0;max-width:70ch;color:var(--ink-2)">Built from your UNESWA modules CSC411, CSC421 and CSC461 and the 2024/25 past papers in your STUDY_OS folder. AI answers cite the page they used; anything marked “General knowledge” or “AI-suggested” is not from your lecturers. Readiness and mastery figures are estimates from your own practice, not predictions of your marks.</p></div>`);
+  <div class="panel"><div class="panel-h"><h2>About StudyOS</h2></div><p style="margin:0;max-width:70ch;color:var(--ink-2)">Built from your UNESWA modules CSC411, CSC421, CSC461 and CSC493, the lecture slides and answer notes you added, and the past papers and tests in your STUDY_OS folder. AI answers cite the page they used; anything marked “General knowledge” or “AI-suggested” is not from your lecturers. Readiness and mastery figures are estimates from your own practice, not predictions of your marks.</p></div>`);
 };
 
 /* ================= events ================= */
