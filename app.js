@@ -538,11 +538,11 @@ VIEWS.reader = () => {
     <aside class="side" aria-label="Study tools">
       <div class="panel" style="padding:14px"><div class="eyebrow" style="margin-bottom:8px">Learn this page</div>
         <div class="row"><button class="btn zero sm" data-act="rd-ai" data-k="zero">TEACH ME FROM ZERO</button><button class="btn sm" data-act="rd-ai" data-k="dont">I DON'T UNDERSTAND</button>
-        <button class="btn sm" data-act="rd-ai" data-k="explain">Explain this page</button><button class="btn sm" data-act="rd-ai" data-k="example">Give another example</button>
+        <button class="btn sm" data-act="rd-ai" data-k="explain">Explain this page</button><button class="btn sm" data-act="rd-ai" data-k="summary">Summarize for notes</button><button class="btn sm" data-act="rd-ai" data-k="example">Give another example</button>
         ${p.img ? `<button class="btn sm" data-act="pmode" data-mode="img">Show the diagram</button>` : ''}<button class="btn sm" data-act="rd-ai" data-k="test">Test my understanding</button>
         <button class="btn sm" data-act="practiceunit" data-unit="${u.id}">Practice questions</button><button class="btn sm" data-act="rd-ai" data-k="cards">Make flashcards</button></div>
         ${aiReady() ? '' : '<div style="margin-top:10px">' + aiOffNote() + '</div>'}</div>
-      <div class="ai-box" id="rdbox" ${UI.run.rd?.html ? '' : 'hidden'}><div class="ai-h"><span class="eyebrow" id="rdtitle">${esc(UI.run.rd?.title || '')}</span><div class="row"><button class="btn sm ghost" data-act="rd-dont2">Still confused</button><button class="btn sm ghost" data-act="rd-stop">Stop</button><button class="btn sm ghost" data-act="rd-close">Close</button></div></div><div class="md" id="rdout">${UI.run.rd?.html || ''}</div><div class="prov" style="margin-top:8px"><span class="gen">AI explanation — check it against your notes</span></div></div>
+      <div class="ai-box" id="rdbox" ${UI.run.rd?.html ? '' : 'hidden'}><div class="ai-h"><span class="eyebrow" id="rdtitle">${esc(UI.run.rd?.title || '')}</span><div class="row"><button class="btn sm pri" data-act="rd-savenote" id="rdsave" ${UI.run.rd?.k === 'summary' && UI.run.rd?.text ? '' : 'hidden'}>Save to my notes</button><button class="btn sm" data-act="rd-copy" id="rdcopy" ${UI.run.rd?.k === 'summary' && UI.run.rd?.text ? '' : 'hidden'}>Copy</button><button class="btn sm ghost" data-act="rd-dont2" id="rddont2" ${UI.run.rd?.k === 'summary' ? 'hidden' : ''}>Still confused</button><button class="btn sm ghost" data-act="rd-stop">Stop</button><button class="btn sm ghost" data-act="rd-close">Close</button></div></div><div class="md" id="rdout">${UI.run.rd?.html || ''}</div><div class="prov" style="margin-top:8px"><span class="gen">AI explanation — check it against your notes</span></div></div>
       <div class="panel" style="padding:14px"><div class="spread" style="margin-bottom:6px"><span class="eyebrow">My notes for this page</span><span class="muted" id="notesave" style="font-size:12px">${ST.d.notes[key] ? 'Saved' : ''}</span></div>
         <textarea id="pnote" rows="5" placeholder="Write it in your own words…">${esc(ST.d.notes[key]?.t || '')}</textarea>
         ${hls.length ? `<div class="eyebrow" style="margin:10px 0 4px">Highlights</div>${hls.map((x, i) => `<div class="spread" style="font-size:13px;gap:6px"><span class="hl" style="flex:1;min-width:0">${esc(x)}</span><button class="btn sm ghost" data-act="unhl" data-i="${i}" aria-label="Remove highlight">×</button></div>`).join('')}` : '<p class="muted" style="font-size:12px;margin:8px 0 0">Select text on the page to highlight it or ask for a simpler explanation.</p>'}</div>
@@ -597,25 +597,34 @@ async function readerAI(k, sel = '') {
   const { m, u } = C.byId[UI.p.unit]; const page = +UI.p.page; const p = u.pages[page];
   if (k === 'cards') return genCards({ unit: u.id, fromPage: page });
   if (!aiReady()) { toast(aiNeed()); return; }
-  const src = pageCtx(u, page, 2); const topic = p.heads[0]?.replace(HEADRX, '$2') || u.title;
-  const titles = { zero: 'Teach me from zero', dont: "I don't understand", explain: 'Explanation', example: 'Another example', test: 'Test my understanding', simple: 'Simpler explanation', dont2: 'Trying a different way' };
+  const src = pageCtx(u, page, k === 'summary' ? 1 : 2); const topic = p.heads[0]?.replace(HEADRX, '$2') || u.title;
+  const titles = { zero: 'Teach me from zero', dont: "I don't understand", explain: 'Explanation', example: 'Another example', test: 'Test my understanding', summary: 'Summary notes', simple: 'Simpler explanation', dont2: 'Trying a different way' };
   const prev = UI.run.rd?.text || '';
   const P = {
     zero: zeroPrompt(`${topic} (${m.code} ${unitLabel(u)}: ${u.title})`, src, levelFor(u.id)),
     explain: `${RULES}\n\nExplain this lecture page clearly to a student reading it for the first time. Start with a 2-sentence overview, then walk through each idea in order, defining every technical term before using it. End with "Key takeaways" (3 bullets).\n\n${src}`,
     dont: `${RULES}\n\nThe student read this page and says "I don't understand". Do NOT repeat the page. Instead: 1) name the one concept most likely causing difficulty, 2) explain it with much simpler words, 3) give an everyday analogy, 4) give one concrete example, 5) break the reasoning into small numbered steps, 6) point out a common misconception, 7) finish with ONE easy question for the student to answer (no answer given).\n\n${src}`,
     example: `${RULES}\n\nGive two NEW concrete examples (different from any in the notes) that illustrate the main idea of this page — one everyday, one technical/IT. Explain how each maps onto the concept. Mark them "General knowledge" where they go beyond the notes.\n\n${src}`,
+    summary: `${RULES}\n\nSummarize ONLY the page marked SOURCE into concise revision notes the student can paste straight into their notebook. Cover every idea on the page (do not skip anything examinable) but use as few words as possible. Format exactly:
+### ${topic}
+**In one line:** the whole page in one sentence.
+**Key points:** short bullets (max ~15 words each), in the page's order; use sub-bullets for lists, types, steps or components.
+**Key terms:** a table: term | short definition (only terms that appear on the page).
+**Remember for the exam:** 2-4 bullets on what is most likely to be examined (definitions, lists to memorise, differences/comparisons).
+No introduction, no closing remarks, no examples that are not on the page. Do not add general knowledge.\n\n${src}`,
     test: `${RULES}\n\nWrite 4 quick recall/understanding questions about this page (mix: one definition, one explain-why, one apply-to-a-scenario, one compare). Number them. Put model answers at the end under "### Answers" so the student can try first.\n\n${src}`,
     simple: `${RULES}\n\nThe student highlighted this passage and wants it explained more simply:\n"""${sel.slice(0, 1500)}"""\nExplain it in plain words, with an analogy and a small example, then restate it in one sentence a first-year could follow. Use the page for context.\n\n${src}`,
     dont2: `${RULES}\n\nThe student is still confused after this explanation:\n"""${prev.slice(0, 3000)}"""\nTry a completely different approach: a different analogy, a visual table or text diagram, and smaller steps. Then ask one very easy check question.\n\n${src}`,
   };
   const box = $('#rdbox'), out = $('#rdout'); box.hidden = false; $('#rdtitle').textContent = titles[k];
+  const isSum = k === 'summary'; $('#rdsave').hidden = true; $('#rdcopy').hidden = true; $('#rddont2').hidden = isSum;
   out.innerHTML = '<p class="thinking">Thinking</p>'; box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   UI.run.rdctl?.abort(); const ctl = UI.run.rdctl = new AbortController();
-  UI.run.rd = { title: titles[k], html: '', text: '' };
+  UI.run.rd = { k, title: titles[k], html: '', text: '' };
   try {
     const text = await ask(P[k], { onText: ({ text }) => { out.innerHTML = md(text); }, signal: ctl.signal, cache: k === 'zero' || k === 'explain' ? undefined : false });
-    out.innerHTML = md(text); UI.run.rd = { title: titles[k], html: out.innerHTML, text };
+    out.innerHTML = md(text); UI.run.rd = { k, title: titles[k], html: out.innerHTML, text };
+    if (isSum && text.trim()) { $('#rdsave').hidden = false; $('#rdcopy').hidden = false; }
     activity(); save('progress');
   } catch (e) { out.innerHTML = (e.text ? md(e.text) : '') + `<p class="notice">${esc(aiMsg(e))}</p>`; }
 }
@@ -1478,6 +1487,18 @@ document.addEventListener('click', async e => {
     case 'rd-ai': readerAI(d.k); break;
     case 'rd-dont2': readerAI('dont2'); break;
     case 'rd-stop': UI.run.rdctl?.abort(); break;
+    case 'rd-savenote': {
+      const t = UI.run.rd?.text?.trim(); if (!t) return;
+      const k = `${UI.p.unit}:${UI.p.page}`; const old = ST.d.notes[k]?.t?.trim() || '';
+      if (old.includes(t)) { toast('Already in your notes'); break; }
+      const v = old ? `${old}\n\n${t}` : t;
+      ST.d.notes[k] = { t: v, ts: Date.now(), unit: UI.p.unit, page: +UI.p.page }; save('notes');
+      const ta = $('#pnote'); if (ta) ta.value = v; const ns = $('#notesave'); if (ns) ns.textContent = 'Saved';
+      toast('Summary saved to your notes for this page'); break; }
+    case 'rd-copy': {
+      const t = UI.run.rd?.text || ''; if (!t) return;
+      (navigator.clipboard?.writeText(t) || Promise.reject()).then(() => toast('Copied'), () => { const a = document.createElement('textarea'); a.value = t; document.body.append(a); a.select(); try { document.execCommand('copy'); toast('Copied'); } catch { toast('Copy failed'); } a.remove(); });
+      break; }
     case 'rd-close': UI.run.rdctl?.abort(); UI.run.rd = null; $('#rdbox').hidden = true; break;
     case 'cite': { const m = modBy(d.mod); const tg = /^\d+$/.test(d.unit) ? 'U' + d.unit : d.unit; const u = m?.units.find(x => tagOf(x) === tg); if (!u) return; const i = u.pages.findIndex(p => p.n === +d.page); UI.run.rd = null; go('reader', { unit: u.id, page: Math.max(0, i) }); break; }
     case 'rec': { const r = recommend(ST.d.settings.studyMins >= 60 ? 45 : 30)[+d.i]; runRec(r); break; }
