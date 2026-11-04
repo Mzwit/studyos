@@ -539,7 +539,7 @@ VIEWS.reader = () => {
     <aside class="side" aria-label="Study tools">
       <div class="panel" style="padding:14px"><div class="eyebrow" style="margin-bottom:8px">Learn this page</div>
         <div class="row"><button class="btn zero sm" data-act="rd-ai" data-k="zero">TEACH ME FROM ZERO</button><button class="btn sm" data-act="rd-ai" data-k="dont">I DON'T UNDERSTAND</button>
-        <button class="btn sm" data-act="rd-ai" data-k="explain">Explain this page</button><button class="btn sm" data-act="rd-ai" data-k="summary">Summarize for notes</button><button class="btn sm" data-act="rd-ai" data-k="example">Give another example</button>
+        <button class="btn sm" data-act="rd-ai" data-k="explain">Explain this page</button><button class="btn sm" data-act="rd-ai" data-k="summary">Make detailed notes</button><button class="btn sm" data-act="rd-ai" data-k="example">Give another example</button>
         ${p.img ? `<button class="btn sm" data-act="pmode" data-mode="img">Show the diagram</button>` : ''}<button class="btn sm" data-act="rd-ai" data-k="test">Test my understanding</button>
         <button class="btn sm" data-act="practiceunit" data-unit="${u.id}">Practice questions</button><button class="btn sm" data-act="rd-ai" data-k="cards">Make flashcards</button></div>
         ${aiReady() ? '' : '<div style="margin-top:10px">' + aiOffNote() + '</div>'}</div>
@@ -642,21 +642,27 @@ async function readerAI(k, sel = '') {
   if (k === 'cards') return genCards({ unit: u.id, fromPage: page });
   if (!aiReady()) { toast(aiNeed()); return; }
   const src = pageCtx(u, page, k === 'summary' ? 1 : 2); const topic = p.heads[0]?.replace(HEADRX, '$2') || u.title;
-  const titles = { zero: 'Teach me from zero', dont: "I don't understand", explain: 'Explanation', example: 'Another example', test: 'Test my understanding', summary: 'Summary notes', simple: 'Simpler explanation', dont2: 'Trying a different way' };
+  const titles = { zero: 'Teach me from zero', dont: "I don't understand", explain: 'Explanation', example: 'Another example', test: 'Test my understanding', summary: 'Detailed notes', simple: 'Simpler explanation', dont2: 'Trying a different way' };
   const prev = UI.run.rd?.text || '';
   const P = {
     zero: zeroPrompt(`${topic} (${m.code} ${unitLabel(u)}: ${u.title})`, src, levelFor(u.id)),
     explain: `${RULES}\n\nExplain this lecture page clearly to a student reading it for the first time. Start with a 2-sentence overview, then walk through each idea in order, defining every technical term before using it. End with "Key takeaways" (3 bullets).\n\n${src}`,
     dont: `${RULES}\n\nThe student read this page and says "I don't understand". Do NOT repeat the page. Instead: 1) name the one concept most likely causing difficulty, 2) explain it with much simpler words, 3) give an everyday analogy, 4) give one concrete example, 5) break the reasoning into small numbered steps, 6) point out a common misconception, 7) finish with ONE easy question for the student to answer (no answer given).\n\n${src}`,
     example: `${RULES}\n\nGive two NEW concrete examples (different from any in the notes) that illustrate the main idea of this page — one everyday, one technical/IT. Explain how each maps onto the concept. Mark them "General knowledge" where they go beyond the notes.\n\n${src}`,
-    summary: `${RULES}\n\nSummarize ONLY the page marked SOURCE into concise revision notes the student can paste straight into their notebook. Cover every idea on the page (do not skip anything examinable) but use as few words as possible. Format exactly:
+    summary: `${RULES}\n\nTurn ONLY the page marked SOURCE into DETAILED study notes the student can keep in their notebook and revise from instead of re-reading the lecture. Be thorough, not brief: capture every idea, definition, list, step, example, comparison and figure on the page, in the page's order, and explain each one fully in clear sentences so it makes sense on its own weeks later. Never drop a point to save space. Format exactly:
 ### ${topic}
-**In one line:** the whole page in one sentence.
-**Key points:** short bullets (max ~15 words each), in the page's order; use sub-bullets for lists, types, steps or components.
-**Key terms:** a table: term | short definition (only terms that appear on the page).
-**Remember for the exam:** 2-4 bullets on what is most likely to be examined (definitions, lists to memorise, differences/comparisons).
-Highlight the 4-8 MOST important exam facts (key definitions, must-memorise lists, critical differences) by wrapping each short phrase in double equals signs, like ==this phrase==. Highlight phrases, not whole sections, and never inside a table header.
-No introduction, no closing remarks, no examples that are not on the page. Do not add general knowledge.\n\n${src}`,
+**Overview:** 2-3 sentences on what this page is about and how it fits the unit.
+Then one #### sub-heading per idea or section on the page. Under each:
+- explain the idea in full sentences (what it is, how it works, why it matters);
+- reproduce every list, type, component or step from the page as bullets or numbered steps, each with a one- to two-sentence explanation;
+- include the page's own examples, and say what each one shows;
+- where the page is terse (e.g. slide bullets), expand it into a proper explanation; mark anything that goes beyond the page with "General knowledge:".
+**Key terms:** a table: term | full definition | short example or note (every technical term on the page).
+**Comparisons:** a table for any differences or advantages/disadvantages the page mentions (omit this section if there are none).
+**Remember for the exam:** 4-6 bullets on what is most likely to be examined and how to phrase it in an answer.
+**Quick self-check:** 3 short questions on this page, with answers underneath.
+Highlight the 6-12 MOST important exam facts (key definitions, must-memorise lists, critical differences) by wrapping each short phrase in double equals signs, like ==this phrase==. Highlight phrases, not whole paragraphs, and never inside a table header.
+No introduction or closing remarks to the student — start straight with the heading.\n\n${src}`,
     test: `${RULES}\n\nWrite 4 quick recall/understanding questions about this page (mix: one definition, one explain-why, one apply-to-a-scenario, one compare). Number them. Put model answers at the end under "### Answers" so the student can try first.\n\n${src}`,
     simple: `${RULES}\n\nThe student highlighted this passage and wants it explained more simply:\n"""${sel.slice(0, 1500)}"""\nExplain it in plain words, with an analogy and a small example, then restate it in one sentence a first-year could follow. Use the page for context.\n\n${src}`,
     dont2: `${RULES}\n\nThe student is still confused after this explanation:\n"""${prev.slice(0, 3000)}"""\nTry a completely different approach: a different analogy, a visual table or text diagram, and smaller steps. Then ask one very easy check question.\n\n${src}`,
@@ -1540,7 +1546,7 @@ document.addEventListener('click', async e => {
       const v = upd ? old.replace(prevSaved, t) : (old ? `${old}\n\n${t}` : t); UI.run.rd.saved = t;
       ST.d.notes[k] = { t: v, ts: Date.now(), unit: UI.p.unit, page: +UI.p.page }; save('notes');
       const ta = $('#pnote'); if (ta) ta.value = v; const ns = $('#notesave'); if (ns) ns.textContent = 'Saved'; notePrev(v);
-      toast(upd ? 'Notes updated with your highlights' : 'Summary saved to your notes for this page'); break; }
+      toast(upd ? 'Notes updated with your highlights' : 'Detailed notes saved for this page'); break; }
     case 'rd-copy': {
       const t = UI.run.rd?.text || ''; if (!t) return;
       const plain = t.replace(/==/g, ''); const html = `<div>${md(t).replace(/<mark>/g, '<mark style="background:#f3d54e">')}</div>`;
