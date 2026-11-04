@@ -124,6 +124,7 @@ function md(text) {
       return '<p>' + il(p).replace(/\n/g, '<br>') + '</p>';
     }).join('');
   }
+  html = html.replace(/==([^=\n](?:[^=\n]|=(?!=))*?)==(?![^<]*>)/g, '<mark>$1</mark>');
   // turn [CSC411 U3 p.5] into clickable citations
   return html.replace(/\[((?:CSC|[A-Z]{2,5})\d{2,4}[A-Z]?) ([USA]\d+) p\.?\s?(\d+)\]/g, (m, c, u, p) => `<button class="cite" data-act="cite" data-mod="${c}" data-unit="${u}" data-page="${p}">${c} ${u} p.${p}</button>`);
 }
@@ -542,9 +543,10 @@ VIEWS.reader = () => {
         ${p.img ? `<button class="btn sm" data-act="pmode" data-mode="img">Show the diagram</button>` : ''}<button class="btn sm" data-act="rd-ai" data-k="test">Test my understanding</button>
         <button class="btn sm" data-act="practiceunit" data-unit="${u.id}">Practice questions</button><button class="btn sm" data-act="rd-ai" data-k="cards">Make flashcards</button></div>
         ${aiReady() ? '' : '<div style="margin-top:10px">' + aiOffNote() + '</div>'}</div>
-      <div class="ai-box" id="rdbox" ${UI.run.rd?.html ? '' : 'hidden'}><div class="ai-h"><span class="eyebrow" id="rdtitle">${esc(UI.run.rd?.title || '')}</span><div class="row"><button class="btn sm pri" data-act="rd-savenote" id="rdsave" ${UI.run.rd?.k === 'summary' && UI.run.rd?.text ? '' : 'hidden'}>Save to my notes</button><button class="btn sm" data-act="rd-copy" id="rdcopy" ${UI.run.rd?.k === 'summary' && UI.run.rd?.text ? '' : 'hidden'}>Copy</button><button class="btn sm ghost" data-act="rd-dont2" id="rddont2" ${UI.run.rd?.k === 'summary' ? 'hidden' : ''}>Still confused</button><button class="btn sm ghost" data-act="rd-stop">Stop</button><button class="btn sm ghost" data-act="rd-close">Close</button></div></div><div class="md" id="rdout">${UI.run.rd?.html || ''}</div><div class="prov" style="margin-top:8px"><span class="gen">AI explanation — check it against your notes</span></div></div>
+      <div class="ai-box" id="rdbox" ${UI.run.rd?.html ? '' : 'hidden'}><div class="ai-h"><span class="eyebrow" id="rdtitle">${esc(UI.run.rd?.title || '')}</span><div class="row"><button class="btn sm pri" data-act="rd-savenote" id="rdsave" ${UI.run.rd?.k === 'summary' && UI.run.rd?.text ? '' : 'hidden'}>Save to my notes</button><button class="btn sm" data-act="rd-copy" id="rdcopy" ${UI.run.rd?.k === 'summary' && UI.run.rd?.text ? '' : 'hidden'}>Copy</button><button class="btn sm ghost" data-act="rd-dont2" id="rddont2" ${UI.run.rd?.k === 'summary' ? 'hidden' : ''}>Still confused</button><button class="btn sm ghost" data-act="rd-stop">Stop</button><button class="btn sm ghost" data-act="rd-close">Close</button></div></div><p class="muted" id="rdhint" style="font-size:12px;margin:0 0 8px" ${UI.run.rd?.k === 'summary' && UI.run.rd?.text ? '' : 'hidden'}>Select any words to highlight them. Tap a highlight to remove it.</p><div class="md" id="rdout">${UI.run.rd?.html || ''}</div><div class="prov" style="margin-top:8px"><span class="gen">AI explanation — check it against your notes</span></div></div>
       <div class="panel" style="padding:14px"><div class="spread" style="margin-bottom:6px"><span class="eyebrow">My notes for this page</span><span class="muted" id="notesave" style="font-size:12px">${ST.d.notes[key] ? 'Saved' : ''}</span></div>
-        <textarea id="pnote" rows="5" placeholder="Write it in your own words…">${esc(ST.d.notes[key]?.t || '')}</textarea>
+        <textarea id="pnote" rows="5" placeholder="Write it in your own words… (wrap words in ==double equals== to highlight)">${esc(ST.d.notes[key]?.t || '')}</textarea>
+        <div class="md" id="pnoteprev" hidden style="margin-top:10px;padding:10px;border:1px solid var(--rule);border-radius:6px;font-size:14px;max-height:420px;overflow:auto"></div>
         ${hls.length ? `<div class="eyebrow" style="margin:10px 0 4px">Highlights</div>${hls.map((x, i) => `<div class="spread" style="font-size:13px;gap:6px"><span class="hl" style="flex:1;min-width:0">${esc(x)}</span><button class="btn sm ghost" data-act="unhl" data-i="${i}" aria-label="Remove highlight">×</button></div>`).join('')}` : '<p class="muted" style="font-size:12px;margin:8px 0 0">Select text on the page to highlight it or ask for a simpler explanation.</p>'}</div>
     </aside></div></div>`;
 };
@@ -556,8 +558,50 @@ AFTER.reader = () => {
   $('#unitjump')?.addEventListener('change', e => { UI.run.rd = null; go('reader', { unit: e.target.value, page: 0 }); });
   const ta = $('#pnote'); let t;
   ta?.addEventListener('input', () => { $('#notesave').textContent = 'Saving…'; clearTimeout(t); t = setTimeout(() => { const k = `${unit}:${page}`; if (ta.value.trim()) ST.d.notes[k] = { t: ta.value, ts: Date.now(), unit, page }; else delete ST.d.notes[k]; save('notes'); $('#notesave').textContent = 'Saved'; }, 600); });
+  const ro = $('#rdout'); ro?.addEventListener('mouseup', sumTip); ro?.addEventListener('touchend', () => setTimeout(sumTip, 50));
+  ro?.addEventListener('click', e => { const mk = e.target.closest('mark'); if (mk && UI.run.rd?.k === 'summary' && !getSelection().toString().trim()) sumUnmarkTip(mk); });
+  ta?.addEventListener('input', () => notePrev(ta.value)); notePrev(ta?.value || '');
   const pr = $('#prose'); if (pr) pr.addEventListener('mouseup', selTip); pr?.addEventListener('touchend', () => setTimeout(selTip, 50));
 };
+/* ---- highlighting inside a summary ---- */
+function notePrev(v) { const el = $('#pnoteprev'); if (!el) return; const show = /==|\*\*|^\s*[-*#|]/m.test(v || ''); el.hidden = !show; if (show) el.innerHTML = md(v); }
+function floatTip(rect, html, onPick) {
+  $('.seltip')?.remove();
+  const tip = document.createElement('div'); tip.className = 'seltip';
+  tip.style.top = (scrollY + rect.top - 42) + 'px'; tip.style.left = Math.max(8, Math.min(innerWidth - 220, scrollX + rect.left)) + 'px';
+  tip.innerHTML = html; tip.addEventListener('mousedown', e => e.preventDefault());
+  tip.addEventListener('click', e => { const a = e.target.dataset.sel; if (!a) return; tip.remove(); onPick(a); });
+  document.body.append(tip);
+  setTimeout(() => document.addEventListener('mousedown', function h(e) { if (!tip.contains(e.target)) { tip.remove(); document.removeEventListener('mousedown', h); } }), 0);
+}
+function sumTip() {
+  if (UI.run.rd?.k !== 'summary' || !UI.run.rd.text) return;
+  const s = getSelection(); const txt = s.toString().trim();
+  if (txt.length < 2 || !s.rangeCount || !$('#rdout').contains(s.anchorNode)) return;
+  floatTip(s.getRangeAt(0).getBoundingClientRect(), '<button data-sel="hl">Highlight</button>', () => { sumHighlight(txt); s.removeAllRanges(); });
+}
+function sumUnmarkTip(mk) {
+  const all = [...$('#rdout').querySelectorAll('mark')]; const i = all.indexOf(mk);
+  floatTip(mk.getBoundingClientRect(), '<button data-sel="un">Remove highlight</button>', () => {
+    let n = -1; sumSetText(UI.run.rd.text.replace(/==([^=\n](?:[^=\n]|=(?!=))*?)==/g, (m, x) => (++n === i ? x : m)));
+  });
+}
+function sumSetText(t) { const out = $('#rdout'); UI.run.rd.text = t; out.innerHTML = md(t); UI.run.rd.html = out.innerHTML; }
+function sumHighlight(sel) {
+  let src = UI.run.rd.text; let hits = 0;
+  // a selection can cross lines (several bullets); highlight each line's part separately
+  for (const part of sel.split(/\n+/).map(x => x.trim()).filter(x => x.length > 1)) {
+    const words = part.split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const re = new RegExp(words.join('(?:[ \\t*_`]|==)+'));
+    const m = re.exec(src); if (!m) continue;
+    let a = m.index, b = a + m[0].length; let seg = src.slice(a, b);
+    if ((seg.match(/\*\*/g) || []).length % 2) { if (src.slice(a - 2, a) === '**') a -= 2; else if (src.slice(b, b + 2) === '**') b += 2; }
+    seg = src.slice(a, b).replace(/==/g, '');
+    src = src.slice(0, a) + '==' + seg + '==' + src.slice(b); hits++;
+  }
+  if (!hits) return toast('Could not highlight that — try selecting fewer words');
+  sumSetText(src.replace(/====/g, ''));
+}
 function selTip() {
   $('.seltip')?.remove(); const s = getSelection(); const txt = s.toString().trim();
   if (txt.length < 3 || !s.rangeCount) return;
@@ -611,20 +655,21 @@ async function readerAI(k, sel = '') {
 **Key points:** short bullets (max ~15 words each), in the page's order; use sub-bullets for lists, types, steps or components.
 **Key terms:** a table: term | short definition (only terms that appear on the page).
 **Remember for the exam:** 2-4 bullets on what is most likely to be examined (definitions, lists to memorise, differences/comparisons).
+Highlight the 4-8 MOST important exam facts (key definitions, must-memorise lists, critical differences) by wrapping each short phrase in double equals signs, like ==this phrase==. Highlight phrases, not whole sections, and never inside a table header.
 No introduction, no closing remarks, no examples that are not on the page. Do not add general knowledge.\n\n${src}`,
     test: `${RULES}\n\nWrite 4 quick recall/understanding questions about this page (mix: one definition, one explain-why, one apply-to-a-scenario, one compare). Number them. Put model answers at the end under "### Answers" so the student can try first.\n\n${src}`,
     simple: `${RULES}\n\nThe student highlighted this passage and wants it explained more simply:\n"""${sel.slice(0, 1500)}"""\nExplain it in plain words, with an analogy and a small example, then restate it in one sentence a first-year could follow. Use the page for context.\n\n${src}`,
     dont2: `${RULES}\n\nThe student is still confused after this explanation:\n"""${prev.slice(0, 3000)}"""\nTry a completely different approach: a different analogy, a visual table or text diagram, and smaller steps. Then ask one very easy check question.\n\n${src}`,
   };
   const box = $('#rdbox'), out = $('#rdout'); box.hidden = false; $('#rdtitle').textContent = titles[k];
-  const isSum = k === 'summary'; $('#rdsave').hidden = true; $('#rdcopy').hidden = true; $('#rddont2').hidden = isSum;
+  const isSum = k === 'summary'; $('#rdsave').hidden = true; $('#rdcopy').hidden = true; $('#rdhint').hidden = true; $('#rddont2').hidden = isSum;
   out.innerHTML = '<p class="thinking">Thinking</p>'; box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   UI.run.rdctl?.abort(); const ctl = UI.run.rdctl = new AbortController();
   UI.run.rd = { k, title: titles[k], html: '', text: '' };
   try {
     const text = await ask(P[k], { onText: ({ text }) => { out.innerHTML = md(text); }, signal: ctl.signal, cache: k === 'zero' || k === 'explain' ? undefined : false });
     out.innerHTML = md(text); UI.run.rd = { k, title: titles[k], html: out.innerHTML, text };
-    if (isSum && text.trim()) { $('#rdsave').hidden = false; $('#rdcopy').hidden = false; }
+    if (isSum && text.trim()) { $('#rdsave').hidden = false; $('#rdcopy').hidden = false; $('#rdhint').hidden = false; }
     activity(); save('progress');
   } catch (e) { out.innerHTML = (e.text ? md(e.text) : '') + `<p class="notice">${esc(aiMsg(e))}</p>`; }
 }
@@ -1491,13 +1536,16 @@ document.addEventListener('click', async e => {
       const t = UI.run.rd?.text?.trim(); if (!t) return;
       const k = `${UI.p.unit}:${UI.p.page}`; const old = ST.d.notes[k]?.t?.trim() || '';
       if (old.includes(t)) { toast('Already in your notes'); break; }
-      const v = old ? `${old}\n\n${t}` : t;
+      const prevSaved = UI.run.rd.saved; const upd = prevSaved && old.includes(prevSaved);
+      const v = upd ? old.replace(prevSaved, t) : (old ? `${old}\n\n${t}` : t); UI.run.rd.saved = t;
       ST.d.notes[k] = { t: v, ts: Date.now(), unit: UI.p.unit, page: +UI.p.page }; save('notes');
-      const ta = $('#pnote'); if (ta) ta.value = v; const ns = $('#notesave'); if (ns) ns.textContent = 'Saved';
-      toast('Summary saved to your notes for this page'); break; }
+      const ta = $('#pnote'); if (ta) ta.value = v; const ns = $('#notesave'); if (ns) ns.textContent = 'Saved'; notePrev(v);
+      toast(upd ? 'Notes updated with your highlights' : 'Summary saved to your notes for this page'); break; }
     case 'rd-copy': {
       const t = UI.run.rd?.text || ''; if (!t) return;
-      (navigator.clipboard?.writeText(t) || Promise.reject()).then(() => toast('Copied'), () => { const a = document.createElement('textarea'); a.value = t; document.body.append(a); a.select(); try { document.execCommand('copy'); toast('Copied'); } catch { toast('Copy failed'); } a.remove(); });
+      const plain = t.replace(/==/g, ''); const html = `<div>${md(t).replace(/<mark>/g, '<mark style="background:#f3d54e">')}</div>`;
+      const rich = window.ClipboardItem && navigator.clipboard?.write ? navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([plain], { type: 'text/plain' }) })]) : null;
+      (rich || navigator.clipboard?.writeText(plain) || Promise.reject()).then(() => toast('Copied'), () => { const a = document.createElement('textarea'); a.value = plain; document.body.append(a); a.select(); try { document.execCommand('copy'); toast('Copied'); } catch { toast('Copy failed'); } a.remove(); });
       break; }
     case 'rd-close': UI.run.rdctl?.abort(); UI.run.rd = null; $('#rdbox').hidden = true; break;
     case 'cite': { const m = modBy(d.mod); const tg = /^\d+$/.test(d.unit) ? 'U' + d.unit : d.unit; const u = m?.units.find(x => tagOf(x) === tg); if (!u) return; const i = u.pages.findIndex(p => p.n === +d.page); UI.run.rd = null; go('reader', { unit: u.id, page: Math.max(0, i) }); break; }
